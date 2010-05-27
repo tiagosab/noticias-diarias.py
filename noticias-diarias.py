@@ -100,7 +100,11 @@ class App:
 Caso o deseje, aperte em ok e escolha o nome e a localização do arquivo.
 Envie-o a seguir para tiagosaboga@gmail.com"""):
             f = tkFileDialog.asksaveasfile(defaultextension='txt', initialfile="erro-noticias-diarias.txt")
-            f.write(self.noticias.get_emergency_string(self.current))
+            f.write("OUTPUT\n")
+            f.write(self.text.get('1.0', END))
+            f.write("\n---------------\n")
+            if self.current:
+                f.write(self.noticias.get_emergency_string(self.current))
             f.close()
                                           
     def insert_index(self):
@@ -182,8 +186,6 @@ vir o indicador de estado da notícia."""
             self.noticias[link] = noticia
         return noticia.gettext()
 
-
-
 class Noticia(object):
     def __init__(self, link):
         self.link = link
@@ -232,7 +234,7 @@ class Noticia(object):
         txt = []
         for item in tag:
             if type(item) is BeautifulSoup.NavigableString:
-                txt.append(item.replace('\r\n', ' '))
+                txt.append(item.replace('\r\n', '\n'))
             elif type(item) is BeautifulSoup.Tag:
                 if len(item)>0:
                     self._descend_into_tags(item)
@@ -246,7 +248,6 @@ class Noticia(object):
     def extract_text_noticia(self, tag):
         txt = []
         for p in tag.findAll('p'):
-            print "entering p"
             txt.extend(self._descend_into_tags(p))
         return '\n'.join(txt)   
     def tostring(self, *args):
