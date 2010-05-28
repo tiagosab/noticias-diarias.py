@@ -16,10 +16,18 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
+# 2010-05-27 - Align buttons
+#            - Add scrollbar
+#            - Make text frame resizable
+
 import urllib2
 import re
 import BeautifulSoup
 from Tkinter import *
+
+import gdata.blogger.client
+import gdata.client
+import gdata.blogger.service
 
 url_nacionais = "http://www.itamaraty.gov.br/sala-de-imprensa/selecao-diaria-de-noticias/midias-nacionais"
 
@@ -62,39 +70,70 @@ class HyperlinkManager:
 
 class App:
     def __init__(self, master, noticias):
-
         self.master = master
-        self.frame = Frame(master)
-        self.frame.pack()
+
+        self.mainframe = Frame(master)
+        self.textframe = Frame(self.mainframe)
+        self.buttonframe = Frame(self.mainframe)
+        self.textframe.pack(side=BOTTOM, fill="both", expand=True)
+        self.buttonframe.pack(side=TOP)
+        self.mainframe.pack(fill="both", expand=True)
+
         self.noticias = noticias
         self.indice = noticias.index
         self.current = ''
+        self.text = ()
 
-        self.button = Button(self.frame,
+        self._makebuttons()
+        self.insert_index()
+
+    def _makebuttons(self):
+        self.button = Button(self.buttonframe,
                              text="QUIT",
                              fg="red",
-                             command=self.frame.quit)
+                             command=self.mainframe.quit)
         self.button.pack(side=LEFT)
 
-        self.indexbutton = Button(self.frame,
+        self.indexbutton = Button(self.buttonframe,
                                   text="Índice",
                                   command=self.insert_index)
         self.indexbutton.pack(side=LEFT)
-        self.text = ()
 
-        self.errorbutton = Button(self.frame,
+        self.blogbutton = Button(self.buttonframe,
+                                 text="Blog",
+                                 command=self.blognow)
+        self.blogbutton.pack()
+
+        self.errorbutton = Button(self.buttonframe,
                                   text="Deu erro?",
                                   command=self.handle_error)
-        self.errorbutton.pack(side=LEFT)
+        self.errorbutton.pack(side=RIGHT)
 
-        self.insert_index()
+    def get_string(self, txt, **kwargs):
+        """kwargs are passed to Entry. Use width and show."""
+        win = Toplevel()
+        Label(win, text=txt).pack()
+        st = StringVar()
+        Entry(win, textvariable=st, **kwargs).pack()
+        Button(win, text="Tá bom", command=win.destroy).pack()
+        self.master.wait_window(win)
+        return st.get()
+
+    def blognow(self):
+        username = self.get_string("Email", width=60)
+        passwd = self.get_string("Senha", width=20)
+
+        blog = Blog(username, passwd, '')
+        st = blog.getblogs()
+        new = Toplevel()
+        textframe = Frame(new)
+        text = Text(textframe)
+        textframe.pack()
+        text.pack()
+        text.insert(INSERT, st)
 
     def handle_error(self):
         import tkFileDialog, tkMessageBox, os
-        # newFrame = Toplevel()
-        # newFrame.title("Notícias diárias - Relatório de erro")
-        # newText = Text(newFrame)
-        # newText.pack()
         if tkMessageBox.askokcancel(title="Gravação de registro de erro.",
             message="""Você deseja gravar o registro de erro em um arquivo?
 Caso o deseje, aperte em ok e escolha o nome e a localização do arquivo.
@@ -106,14 +145,21 @@ Envie-o a seguir para tiagosaboga@gmail.com"""):
             if self.current:
                 f.write(self.noticias.get_emergency_string(self.current))
             f.close()
-                                          
+     
     def insert_index(self):
         if not self.text:
-            self.text = Text(self.frame, bg='white')
+            scrollbar = Scrollbar(self.textframe)
+            scrollbar.pack(side=RIGHT, fill=Y)
+            self.text = Text(self.textframe,
+                             bg='white',
+                             yscrollcommand=scrollbar.set,
+                             state=DISABLED)
+            scrollbar.config(command=self.text.yview)
         else:
             self.remove_index()
         if self.current:
             self.current = ''
+        self.text['state']=NORMAL
         self.hyperlink = HyperlinkManager(self.text)
         for name_jornal, (link_jornal, titulos) in self.indice.items():
             self.text.insert(INSERT, "%s\n" % name_jornal)
@@ -126,14 +172,19 @@ Envie-o a seguir para tiagosaboga@gmail.com"""):
                          name_jornal,
                          link_jornal,
                          link_materia)))
-        self.text.pack()
+        self.text['state']=DISABLED
+        self.text.pack(fill="both", expand=True)
     def insert_text(self, manchete, name_jornal, link):
         self.current = link
         self.remove_index()
+        self.text['state']=NORMAL
         self.text.insert(INSERT,
                          "%s" % self.noticias.get_noticia(link))
+        self.text['state']=DISABLED
     def remove_index(self):
+        self.text['state']=NORMAL
         self.text.delete('1.0', END)
+        self.text['state']=DISABLED
     def get_callback(self, manchete, name_jornal, link_jornal, link_materia):
         def open_materia():
             self.insert_text(manchete, name_jornal, "%s/%s" % (link_jornal, link_materia))
@@ -269,6 +320,39 @@ class Noticia(object):
             ret.append(st)
         return ret
 
+class Blog(object):
+    def __init__(self, username, passwd, captchahandler):
+        """Creates a GDataService and provides ClientLogin auth details to it.
+        The email and password are required arguments for ClientLogin.  The
+        'source' defined below is an arbitrary string, but should be used to
+        reference your name or the name of your organization, the app name and
+        version, with '-' between each of the three values."""
+        self._auth(username, passwd)
+
+    def _auth(self, username, passwd):
+        self.client = gdata.blogger.service.BloggerService(email=username,
+                                                           password=passwd,
+                                                           account_type='GOOGLE',
+                                                           source='noticias-diarias-0.1')
+        # try:
+        #     service.ProgrammaticLogin()
+        # except:
+        #     raise
+
+        # self.client = gdata.blogger.client.BloggerClient()
+        # self.client.source = 'noticias-diarias-0.1'
+        # self.client.service = 'blogger'
+        # self.client.account_type = 'GOOGLE'
+        # self.client.server = 'www.blogger.com'
+        # self.client.ProgrammaticLogin()
+
+    def getblogs(self):
+        feed = self.client.get_blogs()
+        ret = feed.title.text
+        for entry in feed.entry:
+            ret = "%s\n%s" % (ret, entry.title.text)
+        return ret
+
 def get_url(url):
     headers = {'Accept': 'text/html'}
     rqs = urllib2.Request(url=url, headers=headers)
@@ -284,6 +368,7 @@ def main():
     noticias = Noticias(url_nacionais)
     root = Tk()
     app = App(root, noticias)
+    app.master.title("Noticias diárias")
     root.mainloop()
 
 if __name__=="__main__":
