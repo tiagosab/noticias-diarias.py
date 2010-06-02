@@ -30,6 +30,7 @@ import gdata.blogger.client
 import gdata.client
 import gdata.blogger.service
 import gdata.service as gserv
+import atom
 
 url_nacionais = "http://www.itamaraty.gov.br/sala-de-imprensa/selecao-diaria-de-noticias/midias-nacionais"
 
@@ -387,25 +388,26 @@ class Blog(object):
             self.captchahandler(self.client.captcha_url)
         except gserv.BadAuthentication:
             raise
-
-        # try:
-        #     service.ProgrammaticLogin()
-        # except:
-        #     raise
-
-        # self.client = gdata.blogger.client.BloggerClient()
-        # self.client.source = 'noticias-diarias-0.1'
-        # self.client.service = 'blogger'
-        # self.client.account_type = 'GOOGLE'
-        # self.client.server = 'www.blogger.com'
-        # self.client.ProgrammaticLogin()
-
     def getblogs(self):
         feed = self.client.GetBlogFeed()
         ret = feed.title.text
         for entry in feed.entry:
             ret = "%s\n%s" % (ret, entry.title.text)
         return ret
+    def getcatulombo(self):
+        feed = self.client.GetBlogFeed()
+        for entry in feed.entry:
+            if entry.title.text.upper()=='Catulombo':
+                return entry
+    def post(self, title, text, date):
+        blogentry = gdata.blogger.BloggerEntry()
+        blogentry.title = atom.Title('xhtml', title)
+        blogentry.content = atom.Content(content_type='html', text=text)
+        # format of date is date-time, as in
+        # http://tools.ietf.org/html/rfc3339 (date in internet)
+        # http://tools.ietf.org/html/rfc4287#section-3.3 (atom format)
+        blogentry.published = atom.Published(text='2010-12-31T14:03:57-03:00')
+        self.client.AddPost(blogentry, blog_id=self.catulombo.id)
 
 def get_url(url):
     headers = {'Accept': 'text/html'}
