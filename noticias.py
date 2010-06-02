@@ -25,6 +25,7 @@ import re
 import BeautifulSoup
 import Tkinter as tk
 import tkMessageBox
+import ConfigParser
 
 import gdata.blogger.client
 import gdata.client
@@ -33,6 +34,29 @@ import gdata.service as gserv
 import atom
 
 url_nacionais = "http://www.itamaraty.gov.br/sala-de-imprensa/selecao-diaria-de-noticias/midias-nacionais"
+conffile = notidi.conf
+
+class Config(ConfigParser.SafeConfigParser):
+    def __init__(self):
+        # self.config = SafeConfigParser()
+        try:
+            from win32com.shell import shellcon, shell            
+            basedir = shell.SHGetFolderPath(0, shellcon.CSIDL_APPDATA, 0, 0)
+            homedir = os.path.join(basedir, 'notidi')
+        except ImportError: # quick semi-nasty fallback for non-windows/win32com case
+            homedir = os.path.join(os.path.expanduser("~"), '.notidi')
+        if not os.path.exists(homedir):
+            os.mkdir(homedir)
+        if not os.path.isdir(homedir):
+            raise Exception
+        filename = conffile
+        if os.path.exists(filename):
+            try:
+                self.config.read(filename)
+            except:
+                raise
+        ConfigParser.SafeConfigParser.__init__()
+
 
 class HyperlinkManager:
     """Taken  from http://effbot.org/zone/tkinter-text-hyperlink.htm"""
