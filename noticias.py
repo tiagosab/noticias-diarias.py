@@ -22,6 +22,7 @@
 
 import urllib2
 import re
+import os
 import BeautifulSoup
 import Tkinter as tk
 import tkMessageBox
@@ -34,11 +35,18 @@ import gdata.service as gserv
 import atom
 
 url_nacionais = "http://www.itamaraty.gov.br/sala-de-imprensa/selecao-diaria-de-noticias/midias-nacionais"
-conffile = notidi.conf
+conffile = 'notidi.conf'
+blogname = 'crascóriafanos'
 
 class Config(ConfigParser.SafeConfigParser):
     def __init__(self):
         # self.config = SafeConfigParser()
+        ConfigParser.SafeConfigParser.__init__(self)
+        sections = {'blog': ['username', 'password']}
+        for section in sections:
+            self.add_section(section)
+            for option in sections[section]:
+                self.set(section, option, '')
         try:
             from win32com.shell import shellcon, shell            
             basedir = shell.SHGetFolderPath(0, shellcon.CSIDL_APPDATA, 0, 0)
@@ -52,10 +60,9 @@ class Config(ConfigParser.SafeConfigParser):
         filename = conffile
         if os.path.exists(filename):
             try:
-                self.config.read(filename)
+                self.read(filename)
             except:
                 raise
-        ConfigParser.SafeConfigParser.__init__()
 
 
 class HyperlinkManager:
@@ -97,6 +104,7 @@ class HyperlinkManager:
 class App:
     def __init__(self, master, noticias):
         self.master = master
+        self.config = Config()
 
         self.mainframe = tk.Frame(master)
         self.textframe = tk.Frame(self.mainframe)
@@ -145,16 +153,25 @@ class App:
         tk.Button(win, text="Tá bom", command=win.destroy).pack()
         self.master.wait_window(win)
         return st.get()
+    def getuserpass(self):
+        username = self.config.get('blog', 'username')
+        password = self.config.get('blog', 'password')
+        if not username:
+            username = self.get_string("Email", width=70)
+            self.config.set('blog', 'username', username)
+        if not password:
+            password = self.get_string("Senha", width=20, show='*')
+            self.config.set('blog', 'password', username)
+        return username, password
 
     def blognow(self):
         if not self.blog:
-            username = self.get_string("Email", width=60)
-            passwd = self.get_string("Senha", width=20, show='*')
+            username, password = self.getuserpass()
             captcha_response = None
             while not self.blog:
                 try:
                     self.blog = Blog(username,
-                                     passwd,
+                                     password,
                                      captcha_response=captcha_response)
                 except gserv.CaptchaRequired:
                     captcha_response = self.show_captcha(self.blog.captcha_url)
@@ -164,7 +181,16 @@ class App:
                     return
                 except:
                     self.show_error("Erro não previsto.")
-                    return
+                    raise
+            try:
+                self.blog.connect()
+            except BlogNotFound:
+                self.showblogs()
+        if self.current:
+            self.blog.post(self.current.title,
+                           self.current.text,
+                           self.current.date)
+    def showblogs(self):
         st = self.blog.getblogs()
         new = tk.Toplevel()
         textframe = tk.Frame(new)
@@ -172,18 +198,15 @@ class App:
         textframe.pack()
         text.pack()
         text.insert(tk.INSERT, st)
-
     def show_error(self, txt):
         message = tkMessageBox.showerror(title="Notícias diárias - ERRO",
                                          message=txt)
-        
     def show_captcha(self, captcha_url):
         new = tk.Toplevel()
         textframe = tk.Frame(new)
         text = tk.Text(textframe)
         textframe.pack()
         text.pack()
-
     def handle_error(self):
         import tkFileDialog, tkMessageBox, os
         if tkMessageBox.askokcancel(title="Gravação de registro de erro.",
@@ -195,11 +218,12 @@ Envie-o a seguir para tiagosaboga@gmail.com"""):
             f.write(self.text.get('1.0', tk.END).encode('utf-8'))
             f.write("\n---------------\n")
             if self.current:
-                emergency = self.noticias.get_emergency_string(self.current)
-                print type(unicode(emergency))
-                f.write(self.noticias.get_emergency_string(self.current).encode('utf-8'))
+                str_ = u"RAW\n%s\n-------------\nPRETTY\n%s"
+                emergency = str_ % (self.current.rawtag.prettify(),
+                                    self.current.rawtxt.decode('utf-8',
+                                                               'ignore'))
+                f.write(emergency.encode('utf-8'))
             f.close()
-     
     def insert_index(self):
         if not self.text:
             scrollbar = tk.Scrollbar(self.textframe)
@@ -229,11 +253,11 @@ Envie-o a seguir para tiagosaboga@gmail.com"""):
         self.text['state']=tk.DISABLED
         self.text.pack(fill="both", expand=True)
     def insert_text(self, manchete, name_jornal, link):
-        self.current = link
+        self.current = self.noticias.get_noticia(link)
         self.remove_index()
-        self.text['state']=tk.NORMAL
+        self.text['state'] = tk.NORMAL
         self.text.insert(tk.INSERT,
-                         "%s" % self.noticias.get_noticia(link))
+                         "%s" % self.current)
         self.text['state']=tk.DISABLED
     def remove_index(self):
         self.text['state']=tk.NORMAL
@@ -261,9 +285,6 @@ vir o indicador de estado da notícia."""
         txt = get_url(link_indice)
         self.index = self.index_build(txt)
         self.noticias = {}
-    def get_emergency_string(self, link):
-        return u"RAW\n%s\n-------------\nPRETTY\n%s" % (self.noticias[link].rawtag.prettify(),
-                                                        self.noticias[link].rawtxt.decode('utf-8', 'ignore'))
     def get_titulos(self, jornal):
         """jornal is a BeautifulTag"""
         titulos = []
@@ -289,7 +310,7 @@ vir o indicador de estado da notícia."""
         if not noticia:
             noticia = Noticia(link)
             self.noticias[link] = noticia
-        return noticia.gettext()
+        return noticia
 
 class Noticia(object):
     def __init__(self, link, rawtxt=None):
@@ -304,7 +325,6 @@ class Noticia(object):
     def _find(self, tagstr, attrs):
         tag = self.rawtag.find(tagstr, attrs)
         return ''.join(self._descend_into_tags(tag))
-
     def _extractdata(self):
         self.title = self._find('h1', {'id': "parent-fieldname-title"})
         self.date = self._find('div', {'id': 'parent-fieldname-Data'})
@@ -315,21 +335,8 @@ class Noticia(object):
         if not self.text:
             print self.rawtag.prettify()
             raise Exception
-    # def _extractdata_orig(self):
-    #     self.title = self.rawtag.h1
-    #     self.date = self.rawtag.find('p', text=re.compile('^\d{2}/\d{2}/\d{4}$'))
-    #     self.name = self.date.findNext('p')
-    #     self.section = self.name.findNext('span')
-    #     self.subtitle = self.rawtag.find('div', {'id': 'subTituloAreaMateria'})
-    #     # self.text = (self.rawtag.find('div', {'id': 'textoAreaMateria'})
-    #     #              or
-    #     #              self.rawtag.find('div', {'class': "documentDescription"}))
-    #     title, date, name, section, subtitle = self.tostring(title, date, name, section, subtitle)
-    #     self.text = self.extract_text_noticia(self.rawtag)   #(text)
-    #     if not self.text:
-    #         print self.rawtag.prettify()
-    #         raise Exception
-
+    def __str__(self):
+        return self.gettext()
     def gettext(self):
         ret = u''
         for data in [self.title,
@@ -387,6 +394,9 @@ class Noticia(object):
             ret.append(st)
         return ret
 
+class BlogNotFound(Exception):
+    pass
+
 class Blog(object):
     def __init__(self, username, passwd, captcha_response=None):
         """Creates a GDataService and provides ClientLogin auth details to it.
@@ -395,6 +405,11 @@ class Blog(object):
         reference your name or the name of your organization, the app name and
         version, with '-' between each of the three values."""
         self._auth(username, passwd, captcha_response=captcha_response)
+
+    def connect(self):
+        self.catulombo = self.getcatulombo()
+        if not self.catulombo:
+            raise BlogNotFound
 
     def _auth(self, username, passwd, captcha_response=None):
         self.client = gdata.blogger.service.BloggerService(email=username,
@@ -421,7 +436,7 @@ class Blog(object):
     def getcatulombo(self):
         feed = self.client.GetBlogFeed()
         for entry in feed.entry:
-            if entry.title.text.upper()=='Catulombo':
+            if entry.title.text.upper()==blogname.upper():
                 return entry
     def post(self, title, text, date):
         blogentry = gdata.blogger.BloggerEntry()
@@ -431,7 +446,7 @@ class Blog(object):
         # http://tools.ietf.org/html/rfc3339 (date in internet)
         # http://tools.ietf.org/html/rfc4287#section-3.3 (atom format)
         blogentry.published = atom.Published(text='2010-12-31T14:03:57-03:00')
-        self.client.AddPost(blogentry, blog_id=self.catulombo.id)
+        self.client.AddPost(blogentry, blog_id=self.catulombo.GetBlogId())
 
 def get_url(url):
     headers = {'Accept': 'text/html'}
@@ -450,7 +465,15 @@ def save_file(filename, txt):
     f.write(txt)
     f.close()
 
+class Erro(object):
+    def __init__(self, txt):
+        result = re.match('OUTPUT(.*)', txt)
+
+def import_erro(filename):
+    return Erro(filename.open.read())
+
 def main():
+    # setup_proxy()
     noticias = Noticias(url_nacionais)
     root = tk.Tk()
     app = App(root, noticias)
